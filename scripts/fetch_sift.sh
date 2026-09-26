@@ -1,41 +1,50 @@
 #!/usr/bin/env bash
-# Downloads the TEXMEX SIFT datasets (Jegou et al., INRIA) into data/ and
-# renames them to the layout Dataset.load expects:
-#   data/<name>/base.fvecs  query.fvecs  groundtruth.ivecs
+# Downloads SIFT1M (Jegou et al., INRIA TEXMEX corpus) into data/sift1m/ in the
+# layout Dataset.load expects: base.fvecs, query.fvecs, groundtruth.ivecs.
 #
-#   ./scripts/fetch_sift.sh small   siftsmall: 10k base, 100 queries (~5 MB)
-#   ./scripts/fetch_sift.sh full    sift1m:    1M base, 10k queries (~160 MB download)
-#   ./scripts/fetch_sift.sh         both
+# Source: the canonical host is ftp://ftp.irisa.fr/local/texmex/corpus/, but
+# FTP's separate data connection is blocked on many networks (the control
+# connection answers, then zero bytes arrive). So this pulls the same files
+# over HTTPS from a Hugging Face mirror, pinned to one commit so the bytes can't
+# change underneath the benchmarks, and checks each file's SHA-256.
 #
-# The server is FTP-only. If it's unreachable, the same files are mirrored on
-# several ANN benchmark sites; anything in .fvecs/.ivecs form works.
+# What the hash does and doesn't prove: it proves we got exactly the bytes the
+# pinned mirror commit holds. It can't prove the mirror matches INRIA's
+# originals. That's covered by the exact file sizes (1M x 516 bytes, etc.) and
+# by VerifyGroundTruth, which recomputes the answers from base+query and checks
+# them against the shipped groundtruth.ivecs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-BASE_URL=ftp://ftp.irisa.fr/local/texmex/corpus
+
+REV=bd8ccad6c2a0a0a3a7519f6d37c0e5a2d59fe55b
+URL=https://huggingface.co/datasets/qbo-odp/sift1m/resolve/$REV
+DEST=data/sift1m
+
+sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 
 fetch() {
-    local archive=$1 prefix=$2 dest=$3
-    if [ -f "data/$dest/base.fvecs" ]; then
-        echo "data/$dest already present, skipping"
+    local remote=$1 local_name=$2 expected=$3
+    local out="$DEST/$local_name"
+    if [ -f "$out" ] && [ "$(sha256 "$out")" = "$expected" ]; then
+        echo "$out already present and verified"
         return
     fi
-    mkdir -p data/tmp
-    echo "downloading $archive ..."
-    # -C - resumes a partial download instead of starting over.
-    curl --fail -C - -o "data/tmp/$archive" "$BASE_URL/$archive"
-    tar -xzf "data/tmp/$archive" -C data/tmp
-    mkdir -p "data/$dest"
-    mv "data/tmp/$prefix/${prefix}_base.fvecs"        "data/$dest/base.fvecs"
-    mv "data/tmp/$prefix/${prefix}_query.fvecs"       "data/$dest/query.fvecs"
-    mv "data/tmp/$prefix/${prefix}_groundtruth.ivecs" "data/$dest/groundtruth.ivecs"
-    rm -rf "data/tmp/$prefix" "data/tmp/$archive"
-    echo "data/$dest ready"
+    echo "downloading $remote ..."
+    # -C - resumes a partial download; -L follows the redirect to the CDN.
+    curl --fail -L -C - -o "$out.part" "$URL/$remote"
+    local got
+    got=$(sha256 "$out.part")
+    if [ "$got" != "$expected" ]; then
+        echo "SHA-256 mismatch for $remote: got $got, expected $expected" >&2
+        rm -f "$out.part"
+        exit 1
+    fi
+    mv "$out.part" "$out"
+    echo "$out ok"
 }
 
-case "${1:-both}" in
-    small) fetch siftsmall.tar.gz siftsmall siftsmall ;;
-    full)  fetch sift.tar.gz sift sift1m ;;
-    both)  fetch siftsmall.tar.gz siftsmall siftsmall; fetch sift.tar.gz sift sift1m ;;
-    *) echo "usage: $0 [small|full|both]"; exit 2 ;;
-esac
-rmdir data/tmp 2>/dev/null || true
+mkdir -p "$DEST"
+fetch sift_query.fvecs       query.fvecs       f7fc9be140accdfd64116c2fa2365ecdb69b8f084970c6b0532db5ff79ac8fdc
+fetch sift_groundtruth.ivecs groundtruth.ivecs 2b71de0a8d5a83e6a84eec3e23fb8b611d8801dd9b3a6cd62f070ab65ea65f4f
+fetch sift_base.fvecs        base.fvecs        21f66e2975057b5728ba56de1c825bac4f4d89d596609ae985741c6242631816
+echo "$DEST ready"

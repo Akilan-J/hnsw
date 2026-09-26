@@ -27,15 +27,15 @@ echo
 echo "=== how hard is each dataset? (relative contrast near 1 = everything equidistant)"
 $JAVA hnsw.tools.Stats --data $UNIFORM
 $JAVA hnsw.tools.Stats --data $SYNTH
-[ -f data/siftsmall/base.fvecs ] && $JAVA hnsw.tools.Stats --data data/siftsmall
-[ -f data/sift1m/base.fvecs ]    && $JAVA hnsw.tools.Stats --data data/sift1m --base-limit 100000
+if [ -f data/sift1m/base.fvecs ]; then
+    $JAVA hnsw.tools.Stats --data data/sift1m --base-limit 100000
+    $JAVA hnsw.tools.Stats --data data/sift1m
+fi
 
 echo
 echo "=== ground-truth correctness vs. shipped SIFT ground truth"
 if [ -f data/sift1m/base.fvecs ]; then
     $JAVA hnsw.tools.VerifyGroundTruth --data data/sift1m
-elif [ -f data/siftsmall/base.fvecs ]; then
-    $JAVA hnsw.tools.VerifyGroundTruth --data data/siftsmall
 else
     echo "(skipped: no SIFT data - ./scripts/fetch_sift.sh)"
 fi

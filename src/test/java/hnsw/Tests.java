@@ -41,7 +41,7 @@ public final class Tests {
         run("parallel ground truth equals serial brute force", Tests::parallelGroundTruth);
         run("verify() separates tie swaps from real errors", Tests::verifyClassifiesTies);
         run("recall@k scoring", Tests::recallScoring);
-        run("brute force matches shipped SIFT ground truth (siftsmall)", Tests::siftSmall);
+        run("brute force matches shipped SIFT1M ground truth (first 100 queries)", Tests::siftGroundTruth);
 
         System.out.printf("%n%d passed, %d failed, %d skipped%n", passed, failed, skipped);
         System.exit(failed == 0 ? 0 : 1);
@@ -235,15 +235,21 @@ public final class Tests {
         check(Benchmark.recallAtK(new int[][]{{3, 4}}, new int[][]{{1, 2, 3, 4}}, 2) == 0.0, "only top-k of truth counts");
     }
 
-    static void siftSmall() throws IOException {
-        Path dir = Path.of("data/siftsmall");
+    /**
+     * The one test that doesn't trust our own code: someone else's ground truth.
+     * 100 queries x 1M vectors keeps it to a few seconds; the full 10k-query check
+     * is VerifyGroundTruth, run by bench.sh.
+     */
+    static void siftGroundTruth() throws IOException {
+        Path dir = Path.of("data/sift1m");
         if (!Files.exists(dir.resolve("base.fvecs"))) {
-            throw new Skip("data/siftsmall not downloaded - run ./scripts/fetch_sift.sh");
+            throw new Skip("data/sift1m not downloaded - run ./scripts/fetch_sift.sh");
         }
         Dataset data = Dataset.load(dir, SquaredL2.INSTANCE, 0);
-        int[][] reference = VectorIO.readIvecs(data.shippedGroundTruthPath(), 0);
-        int[][] ours = GroundTruth.compute(data.base, data.queries, data.metric, 100);
-        GroundTruth.Verification v = GroundTruth.verify(data.base, data.queries, data.metric, ours, reference, 100);
+        float[][] queries = Arrays.copyOf(data.queries, 100);
+        int[][] reference = VectorIO.readIvecs(data.shippedGroundTruthPath(), 100);
+        int[][] ours = GroundTruth.compute(data.base, queries, data.metric, 100);
+        GroundTruth.Verification v = GroundTruth.verify(data.base, queries, data.metric, ours, reference, 100);
         check(v.ok(), v.errors() + " mismatches, first: " + v.firstError());
         System.out.printf("    (%,d identical, %,d tie swaps)%n", v.exactMatches(), v.tieSwaps());
     }
