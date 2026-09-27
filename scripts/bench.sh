@@ -76,3 +76,11 @@ if [ -f data/sift1m/base.fvecs ]; then
         $JAVA hnsw.tools.Bench $SIFT100K --index nsw --queries 1000 --max-degree $cap
     done
 fi
+
+# The flat graph at full SIFT1M scale takes ~10 minutes to build on an M2, so
+# it's opt-in: FULL=1 ./scripts/bench.sh. It's the run that shows how the flat
+# graph's cost grows with n.
+if [ "${FULL:-0}" = 1 ] && [ -f data/sift1m/base.fvecs ]; then
+    JAVA_1M="java ${JAVA_OPTS:--Xms4g -Xmx4g -XX:+AlwaysPreTouch} -cp build"
+    $JAVA_1M hnsw.tools.Bench --data data/sift1m --index nsw --queries 1000 --max-degree 0
+fi
