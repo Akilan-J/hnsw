@@ -47,3 +47,32 @@ if [ -f data/sift1m/base.fvecs ]; then
     $JAVA hnsw.tools.Bench --data data/sift1m --base-limit 100000 --index brute --queries $BRUTE_QUERIES
     $JAVA hnsw.tools.Bench --data data/sift1m --index brute --queries $BRUTE_QUERIES
 fi
+
+# ------------------------------------------------------------------ stage 2
+# Flat NSW. Two graphs from the same code: degree capped at 2M with the
+# "keep the nearest" rule, and uncapped. The difference between them is the
+# setup for stage 3's neighbour-selection heuristic.
+SIFT100K="--data data/sift1m --base-limit 100000"
+
+echo
+echo "=== flat NSW: where greedy search gets stuck"
+for cap in 32 0; do
+    $JAVA hnsw.tools.GreedyFailures --data $SYNTH --max-degree $cap
+    echo
+done
+$JAVA hnsw.tools.GreedyFailures --data $UNIFORM --max-degree 0
+if [ -f data/sift1m/base.fvecs ]; then
+    for cap in 32 0; do
+        echo
+        $JAVA hnsw.tools.GreedyFailures $SIFT100K --max-degree $cap
+    done
+fi
+
+echo
+echo "=== flat NSW: recall vs. throughput (brute force above is the baseline)"
+$JAVA hnsw.tools.Bench --data $SYNTH --index nsw --queries 1000 --max-degree 0
+if [ -f data/sift1m/base.fvecs ]; then
+    for cap in 32 0; do
+        $JAVA hnsw.tools.Bench $SIFT100K --index nsw --queries 1000 --max-degree $cap
+    done
+fi

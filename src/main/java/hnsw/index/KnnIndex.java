@@ -13,6 +13,14 @@ public interface KnnIndex {
      */
     int[] search(float[] query, int k);
 
+    /**
+     * Cumulative number of distance evaluations, or -1 if the index doesn't
+     * count them. Brute force doesn't bother: it is always exactly n per query.
+     */
+    default long distanceComputations() {
+        return -1;
+    }
+
     /** Human-readable name and parameters, for benchmark output. */
     String describe();
 }

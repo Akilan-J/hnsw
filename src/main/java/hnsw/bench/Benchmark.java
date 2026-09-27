@@ -42,6 +42,7 @@ public final class Benchmark {
 
         long[] latencies = new long[queries.length];
         int[][] results = new int[queries.length][];
+        long distancesBefore = index.distanceComputations();
         long wallStart = System.nanoTime();
         for (int q = 0; q < queries.length; q++) {
             long t0 = System.nanoTime();
@@ -49,6 +50,8 @@ public final class Benchmark {
             latencies[q] = System.nanoTime() - t0;
         }
         long wallNanos = System.nanoTime() - wallStart;
+        double distancesPerQuery = distancesBefore < 0 ? base.length // brute force: exactly n
+                : (double) (index.distanceComputations() - distancesBefore) / queries.length;
         // Recall is scored after the clock stops so it never counts as search time.
         double recall = recallAtK(results, groundTruth, k);
 
@@ -57,15 +60,16 @@ public final class Benchmark {
         double meanMs = Arrays.stream(latencies).average().orElse(0) / 1e6;
         return new Result(index.describe(), queries.length, k, queries.length / (wallNanos / 1e9), meanMs,
                 percentileMs(sorted, 50), percentileMs(sorted, 95), percentileMs(sorted, 99),
-                sorted[sorted.length - 1] / 1e6, recall);
+                sorted[sorted.length - 1] / 1e6, recall, distancesPerQuery);
     }
 
     /**
      * Fraction of the true k nearest neighbours that were returned, averaged over
      * queries. Ids only, no distances, so an index that returns a different
      * vector at exactly the same distance as the k-th true neighbour is marked
-     * wrong even though it isn't. This is rare on real data, and stage 4 revisits
-     * it.
+     * wrong even though it isn't. Not hypothetical: SIFT's integer coordinates
+     * make 2% of top-100 positions exact ties. Stage 4 measures how much this
+     * moves recall@10.
      */
     public static double recallAtK(int[][] results, int[][] groundTruth, int k) {
         double total = 0;
@@ -93,21 +97,29 @@ public final class Benchmark {
     }
 
     public record Result(String index, int queries, int k, double qps, double meanMs,
-                         double p50Ms, double p95Ms, double p99Ms, double maxMs, double recall) {
+                         double p50Ms, double p95Ms, double p99Ms, double maxMs, double recall,
+                         double distancesPerQuery) {
 
         public String pretty() {
             return String.format("%s%n  queries=%d k=%d%n  recall@%d : %.4f%n  throughput: %,.1f QPS%n"
-                            + "  latency  : mean=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms max=%.3fms",
-                    index, queries, k, k, recall, qps, meanMs, p50Ms, p95Ms, p99Ms, maxMs);
+                            + "  latency  : mean=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms max=%.3fms%n"
+                            + "  distances: %,.0f per query",
+                    index, queries, k, k, recall, qps, meanMs, p50Ms, p95Ms, p99Ms, maxMs, distancesPerQuery);
+        }
+
+        /** One line per run, for parameter sweeps. */
+        public String row() {
+            return String.format("  %-48s recall@%d=%.4f  %,9.1f QPS  p50=%7.3fms  p99=%7.3fms  %,9.0f dist/q",
+                    index, k, recall, qps, p50Ms, p99Ms, distancesPerQuery);
         }
 
         public static String csvHeader() {
-            return "index,queries,k,recall,qps,mean_ms,p50_ms,p95_ms,p99_ms,max_ms";
+            return "index,queries,k,recall,qps,mean_ms,p50_ms,p95_ms,p99_ms,max_ms,distances_per_query";
         }
 
         public String csv() {
-            return String.format("\"%s\",%d,%d,%.5f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f",
-                    index, queries, k, recall, qps, meanMs, p50Ms, p95Ms, p99Ms, maxMs);
+            return String.format("\"%s\",%d,%d,%.5f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.1f",
+                    index, queries, k, recall, qps, meanMs, p50Ms, p95Ms, p99Ms, maxMs, distancesPerQuery);
         }
     }
 }

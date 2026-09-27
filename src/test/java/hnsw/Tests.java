@@ -16,6 +16,7 @@ import hnsw.data.VectorIO;
 import hnsw.distance.CosineDistance;
 import hnsw.distance.SquaredL2;
 import hnsw.index.BruteForceIndex;
+import hnsw.index.IndexTests;
 import hnsw.index.TopK;
 
 /**
@@ -42,6 +43,15 @@ public final class Tests {
         run("verify() separates tie swaps from real errors", Tests::verifyClassifiesTies);
         run("recall@k scoring", Tests::recallScoring);
         run("brute force matches shipped SIFT1M ground truth (first 100 queries)", Tests::siftGroundTruth);
+
+        // stage 2: flat NSW graph
+        run("CandidateQueue pops in (distance, id) order, across growth", IndexTests::candidateQueueOrder);
+        run("VisitedSet forgets everything on clear(), and only then", IndexTests::visitedSet);
+        run("NSW graph invariants: no self-loops, no duplicates, cap respected", IndexTests::graphInvariants);
+        run("unbounded NSW: every link has its reverse, all nodes reachable", IndexTests::unboundedIsSymmetric);
+        run("NSW with ef >= n is exact (whole graph explored)", IndexTests::fullBeamIsExact);
+        run("greedy (ef=1) always stops at a local minimum", IndexTests::greedyStopsAtLocalMinimum);
+        run("NSW build and search are deterministic", IndexTests::deterministic);
 
         System.out.printf("%n%d passed, %d failed, %d skipped%n", passed, failed, skipped);
         System.exit(failed == 0 ? 0 : 1);
