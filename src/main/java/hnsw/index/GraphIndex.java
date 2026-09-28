@@ -14,4 +14,7 @@ public interface GraphIndex extends KnnIndex {
 
     /** Multi-line summary of the built graph: degrees, memory, reachability. */
     String graphStats();
+
+    /** Estimated bytes held by the graph structure, excluding the shared vectors. */
+    long graphBytes();
 }

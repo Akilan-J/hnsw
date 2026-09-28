@@ -1,8 +1,10 @@
 package hnsw.bench;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Random;
 
+import hnsw.distance.DistanceFunction;
 import hnsw.index.KnnIndex;
 
 /**
@@ -25,21 +27,63 @@ public final class Benchmark {
     }
 
     /**
-     * @param warmupQueries untimed searches run first so the JIT has compiled
-     *                      the hot paths before the clock starts. They use base
-     *                      vectors, not the timed queries: warming up on the exact
-     *                      queries about to be timed would pre-load their graph
-     *                      paths into CPU cache and flatter the numbers.
+     * @param warmupSeconds untimed searches first, for at least this long, so the
+     *                      JIT has compiled the hot path for <i>this</i>
+     *                      configuration before the clock starts. By time rather
+     *                      than a query count, because a fixed count is too few for a
+     *                      0.03 ms graph search and far too many for a 60 ms brute
+     *                      force scan. Stage 3 showed the cost of too little: the
+     *                      first point of every sweep had an inflated p99 and lower
+     *                      QPS than the next, larger ef. Warm-up queries are base
+     *                      vectors, not the timed queries, so the timed queries'
+     *                      graph paths aren't pre-loaded into cache.
+     * @param repeats       timed passes over the query set. The reported numbers
+     *                      are from the pass with the median QPS, with the min and
+     *                      max kept to show the run-to-run spread. The median
+     *                      rather than the best: best-of-N reports the machine on its
+     *                      luckiest run, and the mean lets one stall move the number.
      */
     public static Result run(KnnIndex index, float[][] base, float[][] queries, int[][] groundTruth,
-                             int k, int warmupQueries, long seed) {
+                             DistanceFunction metric, int k, double warmupSeconds, int repeats, long seed) {
         Random rng = new Random(seed);
         long sink = 0;
-        for (int i = 0; i < warmupQueries; i++) {
+        long warmupStart = System.nanoTime();
+        for (int i = 0; i < 10 || System.nanoTime() - warmupStart < warmupSeconds * 1e9; i++) {
             sink += index.search(base[rng.nextInt(base.length)], k)[0];
         }
         blackhole = sink;
 
+        Pass[] passes = new Pass[Math.max(1, repeats)];
+        for (int r = 0; r < passes.length; r++) {
+            passes[r] = timedPass(index, queries, k);
+        }
+        Pass[] byQps = passes.clone();
+        Arrays.sort(byQps, Comparator.comparingDouble(Pass::qps));
+        Pass median = byQps[byQps.length / 2];
+
+        // The search is deterministic, so every pass returns the same results and
+        // the same distance count; scoring one is scoring all of them.
+        double distancesPerQuery = median.distances < 0 ? base.length // brute force: exactly n
+                : (double) median.distances / queries.length;
+        long[] sorted = median.latencies.clone();
+        Arrays.sort(sorted);
+        return new Result(index.describe(), queries.length, k, median.qps(), byQps[0].qps(),
+                byQps[byQps.length - 1].qps(), passes.length,
+                Arrays.stream(sorted).average().orElse(0) / 1e6,
+                percentileMs(sorted, 50), percentileMs(sorted, 95), percentileMs(sorted, 99),
+                sorted[sorted.length - 1] / 1e6,
+                recallAtK(median.results, groundTruth, k),
+                recallAtKWithTies(median.results, groundTruth, base, queries, metric, k),
+                distancesPerQuery);
+    }
+
+    private record Pass(long[] latencies, int[][] results, long wallNanos, long distances) {
+        double qps() {
+            return latencies.length / (wallNanos / 1e9);
+        }
+    }
+
+    private static Pass timedPass(KnnIndex index, float[][] queries, int k) {
         long[] latencies = new long[queries.length];
         int[][] results = new int[queries.length][];
         long distancesBefore = index.distanceComputations();
@@ -50,26 +94,14 @@ public final class Benchmark {
             latencies[q] = System.nanoTime() - t0;
         }
         long wallNanos = System.nanoTime() - wallStart;
-        double distancesPerQuery = distancesBefore < 0 ? base.length // brute force: exactly n
-                : (double) (index.distanceComputations() - distancesBefore) / queries.length;
-        // Recall is scored after the clock stops so it never counts as search time.
-        double recall = recallAtK(results, groundTruth, k);
-
-        long[] sorted = latencies.clone();
-        Arrays.sort(sorted);
-        double meanMs = Arrays.stream(latencies).average().orElse(0) / 1e6;
-        return new Result(index.describe(), queries.length, k, queries.length / (wallNanos / 1e9), meanMs,
-                percentileMs(sorted, 50), percentileMs(sorted, 95), percentileMs(sorted, 99),
-                sorted[sorted.length - 1] / 1e6, recall, distancesPerQuery);
+        long distances = distancesBefore < 0 ? -1 : index.distanceComputations() - distancesBefore;
+        return new Pass(latencies, results, wallNanos, distances);
     }
 
     /**
      * Fraction of the true k nearest neighbours that were returned, averaged over
-     * queries. Ids only, no distances, so an index that returns a different
-     * vector at exactly the same distance as the k-th true neighbour is marked
-     * wrong even though it isn't. Not hypothetical: SIFT's integer coordinates
-     * make 2% of top-100 positions exact ties. Stage 4 measures how much this
-     * moves recall@10.
+     * queries, matching by id. Strict: a vector at exactly the same distance as the
+     * k-th true neighbour, but a different id, counts as a miss.
      */
     public static double recallAtK(int[][] results, int[][] groundTruth, int k) {
         double total = 0;
@@ -90,36 +122,67 @@ public final class Benchmark {
         return total / results.length;
     }
 
+    /**
+     * Recall@k that accepts ties: a returned vector counts if it's no farther than
+     * the k-th true neighbour. SIFT's integer coordinates make exact ties common
+     * (2% of top-100 positions), and when the tie straddles rank k, id matching
+     * marks a correct answer wrong. This is the convention ANN benchmark suites
+     * use. It can only be >= strict recall, since every id match also passes the
+     * distance test. The tolerance matches GroundTruth.verify: relative 1e-5, for
+     * summation-order rounding.
+     */
+    public static double recallAtKWithTies(int[][] results, int[][] groundTruth, float[][] base,
+                                           float[][] queries, DistanceFunction metric, int k) {
+        double total = 0;
+        for (int q = 0; q < results.length; q++) {
+            float kth = metric.distance(queries[q], base[groundTruth[q][k - 1]]);
+            float limit = kth + 1e-5f * Math.max(1f, Math.abs(kth));
+            int hits = 0;
+            for (int i = 0; i < Math.min(k, results[q].length); i++) {
+                if (metric.distance(queries[q], base[results[q][i]]) <= limit) {
+                    hits++;
+                }
+            }
+            total += (double) hits / k;
+        }
+        return total / results.length;
+    }
+
     /** Nearest-rank percentile, same definition as the kvstore benchmark. */
     static double percentileMs(long[] sorted, double p) {
         int index = (int) Math.ceil(p / 100.0 * sorted.length) - 1;
         return sorted[Math.max(0, Math.min(index, sorted.length - 1))] / 1e6;
     }
 
-    public record Result(String index, int queries, int k, double qps, double meanMs,
-                         double p50Ms, double p95Ms, double p99Ms, double maxMs, double recall,
-                         double distancesPerQuery) {
+    public record Result(String index, int queries, int k, double qps, double qpsMin, double qpsMax, int repeats,
+                         double meanMs, double p50Ms, double p95Ms, double p99Ms, double maxMs,
+                         double recall, double recallWithTies, double distancesPerQuery) {
 
         public String pretty() {
-            return String.format("%s%n  queries=%d k=%d%n  recall@%d : %.4f%n  throughput: %,.1f QPS%n"
+            return String.format("%s%n  queries=%d k=%d%n  recall@%d : %.4f (with ties: %.4f)%n"
+                            + "  throughput: %,.1f QPS (median of %d; range %,.1f-%,.1f)%n"
                             + "  latency  : mean=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms max=%.3fms%n"
                             + "  distances: %,.0f per query",
-                    index, queries, k, k, recall, qps, meanMs, p50Ms, p95Ms, p99Ms, maxMs, distancesPerQuery);
+                    index, queries, k, k, recall, recallWithTies, qps, repeats, qpsMin, qpsMax,
+                    meanMs, p50Ms, p95Ms, p99Ms, maxMs, distancesPerQuery);
         }
 
         /** One line per run, for parameter sweeps. */
         public String row() {
-            return String.format("  %-48s recall@%d=%.4f  %,9.1f QPS  p50=%7.3fms  p99=%7.3fms  %,9.0f dist/q",
-                    index, k, recall, qps, p50Ms, p99Ms, distancesPerQuery);
+            return String.format("  %-48s recall@%d=%.4f (ties %.4f)  %,9.1f QPS (±%2.0f%%)  p50=%7.3fms  p99=%7.3fms  %,9.0f dist/q",
+                    index, k, recall, recallWithTies, qps, 50 * (qpsMax - qpsMin) / qps, p50Ms, p99Ms,
+                    distancesPerQuery);
         }
 
         public static String csvHeader() {
-            return "index,queries,k,recall,qps,mean_ms,p50_ms,p95_ms,p99_ms,max_ms,distances_per_query";
+            return "queries,k,recall,recall_ties,qps,qps_min,qps_max,repeats,mean_ms,p50_ms,p95_ms,p99_ms,max_ms,"
+                    + "distances_per_query";
         }
 
         public String csv() {
-            return String.format("\"%s\",%d,%d,%.5f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.1f",
-                    index, queries, k, recall, qps, meanMs, p50Ms, p95Ms, p99Ms, maxMs, distancesPerQuery);
+            return String.format("%d,%d,%.5f,%.5f,%.2f,%.2f,%.2f,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.1f",
+                    queries, k, recall, recallWithTies, qps, qpsMin, qpsMax, repeats, meanMs, p50Ms, p95Ms,
+                    p99Ms, maxMs, distancesPerQuery);
         }
     }
 }

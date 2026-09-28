@@ -267,6 +267,7 @@ public final class FlatNswIndex implements GraphIndex {
      * brute force, so they aren't counted): each adjacency array's capacity plus
      * its 16-byte header, the degree array, and the visited-set marks.
      */
+    @Override
     public long graphBytes() {
         long bytes = 0;
         for (int i = 0; i < size; i++) {

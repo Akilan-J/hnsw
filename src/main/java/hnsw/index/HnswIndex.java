@@ -398,6 +398,7 @@ public final class HnswIndex implements GraphIndex {
      * references (compressed oops, the JVM default below 32 GB of heap); plus
      * the level array and the visited-set marks.
      */
+    @Override
     public long graphBytes() {
         long bytes = 0;
         for (int i = 0; i < size; i++) {

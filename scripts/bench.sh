@@ -1,105 +1,223 @@
 #!/usr/bin/env bash
-# Reproduces every number in the project from scratch with one command:
-#   ./scripts/bench.sh
+# Reproduces every number in the project from scratch:
+#   ./scripts/bench.sh            all stages (~1 hour with SIFT on an M2)
+#   ./scripts/bench.sh stage4     one stage (stage1 .. stage4)
 # Synthetic data is generated from a fixed seed, so it needs no download. SIFT
-# runs are included automatically once ./scripts/fetch_sift.sh has been run.
+# runs need ./scripts/fetch_sift.sh first; stage 4 is SIFT-based and requires it.
+#
+# Stage 4 writes its results to results/ (CSV, SVG charts, markdown tables);
+# those are committed, so the README's numbers can be traced to a run.
 #
 # Single-threaded measurements. On Apple Silicon the OS may schedule the JVM on
-# an efficiency core; close other heavy work and expect a few % run-to-run noise.
+# an efficiency core; close other heavy work. Each point is the median of 3
+# passes, and the tables show the min-max spread.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Fixed heap so GC sizing doesn't vary between runs; AlwaysPreTouch faults the
 # heap in up front so page faults don't land inside timed queries.
 JAVA="java ${JAVA_OPTS:--Xms3g -Xmx3g -XX:+AlwaysPreTouch} -cp build"
+JAVA_1M="java ${JAVA_OPTS:--Xms4g -Xmx4g -XX:+AlwaysPreTouch} -cp build"
 BRUTE_QUERIES=${BRUTE_QUERIES:-200}
-
-./scripts/build.sh
-echo "java: $(java -version 2>&1 | head -1)"
-echo "cpu : $(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
-
 SYNTH=data/synth-n100k-d128-l16
 UNIFORM=data/uniform-n100k-d128
-[ -f $SYNTH/base.fvecs ]   || $JAVA hnsw.tools.Generate --out $SYNTH --n 100000 --dim 128 --latent-dim 16 --clusters 64 --seed 42
-[ -f $UNIFORM/base.fvecs ] || $JAVA hnsw.tools.Generate --out $UNIFORM --n 100000 --dim 128 --latent-dim 128 --clusters 1 --cluster-std 1 --noise 0 --seed 42
+SIFT100K="--data data/sift1m --base-limit 100000"
 
-echo
-echo "=== how hard is each dataset? (relative contrast near 1 = everything equidistant)"
-$JAVA hnsw.tools.Stats --data $UNIFORM
-$JAVA hnsw.tools.Stats --data $SYNTH
-if [ -f data/sift1m/base.fvecs ]; then
-    $JAVA hnsw.tools.Stats --data data/sift1m --base-limit 100000
-    $JAVA hnsw.tools.Stats --data data/sift1m
-fi
+have_sift() { [ -f data/sift1m/base.fvecs ]; }
 
-echo
-echo "=== ground-truth correctness vs. shipped SIFT ground truth"
-if [ -f data/sift1m/base.fvecs ]; then
-    $JAVA hnsw.tools.VerifyGroundTruth --data data/sift1m
-else
-    echo "(skipped: no SIFT data - ./scripts/fetch_sift.sh)"
-fi
+synthetic_data() {
+    [ -f $SYNTH/base.fvecs ]   || $JAVA hnsw.tools.Generate --out $SYNTH --n 100000 --dim 128 --latent-dim 16 --clusters 64 --seed 42
+    [ -f $UNIFORM/base.fvecs ] || $JAVA hnsw.tools.Generate --out $UNIFORM --n 100000 --dim 128 --latent-dim 128 --clusters 1 --cluster-std 1 --noise 0 --seed 42
+}
 
-echo
-echo "=== brute-force baseline"
-$JAVA hnsw.tools.Bench --data $SYNTH --index brute --queries $BRUTE_QUERIES
-if [ -f data/sift1m/base.fvecs ]; then
-    $JAVA hnsw.tools.Bench --data data/sift1m --base-limit 100000 --index brute --queries $BRUTE_QUERIES
-    $JAVA hnsw.tools.Bench --data data/sift1m --index brute --queries $BRUTE_QUERIES
-fi
+# ------------------------------------------------------------------ stage 1
+stage1() {
+    echo
+    echo "=== how hard is each dataset? (relative contrast near 1 = everything equidistant)"
+    $JAVA hnsw.tools.Stats --data $UNIFORM
+    $JAVA hnsw.tools.Stats --data $SYNTH
+    if have_sift; then
+        $JAVA hnsw.tools.Stats $SIFT100K
+        $JAVA hnsw.tools.Stats --data data/sift1m
+    fi
+
+    echo
+    echo "=== ground-truth correctness vs. shipped SIFT ground truth"
+    if have_sift; then
+        $JAVA hnsw.tools.VerifyGroundTruth --data data/sift1m
+    else
+        echo "(skipped: no SIFT data - ./scripts/fetch_sift.sh)"
+    fi
+
+    echo
+    echo "=== brute-force baseline"
+    $JAVA hnsw.tools.Bench --data $SYNTH --index brute --queries $BRUTE_QUERIES
+    if have_sift; then
+        $JAVA hnsw.tools.Bench $SIFT100K --index brute --queries $BRUTE_QUERIES
+        $JAVA hnsw.tools.Bench --data data/sift1m --index brute --queries $BRUTE_QUERIES --repeats 1
+    fi
+}
 
 # ------------------------------------------------------------------ stage 2
 # Flat NSW. Two graphs from the same code: degree capped at 2M with the
 # "keep the nearest" rule, and uncapped. The difference between them is the
 # setup for stage 3's neighbour-selection heuristic.
-SIFT100K="--data data/sift1m --base-limit 100000"
-
-echo
-echo "=== flat NSW: where greedy search gets stuck"
-for cap in 32 0; do
-    $JAVA hnsw.tools.GreedyFailures --data $SYNTH --max-degree $cap
+stage2() {
     echo
-done
-$JAVA hnsw.tools.GreedyFailures --data $UNIFORM --max-degree 0
-if [ -f data/sift1m/base.fvecs ]; then
+    echo "=== flat NSW: where greedy search gets stuck"
     for cap in 32 0; do
+        $JAVA hnsw.tools.GreedyFailures --data $SYNTH --max-degree $cap
         echo
-        $JAVA hnsw.tools.GreedyFailures $SIFT100K --max-degree $cap
     done
-fi
+    $JAVA hnsw.tools.GreedyFailures --data $UNIFORM --max-degree 0
+    if have_sift; then
+        for cap in 32 0; do
+            echo
+            $JAVA hnsw.tools.GreedyFailures $SIFT100K --max-degree $cap
+        done
+    fi
 
-echo
-echo "=== flat NSW: recall vs. throughput (brute force above is the baseline)"
-$JAVA hnsw.tools.Bench --data $SYNTH --index nsw --queries 1000 --max-degree 0
-if [ -f data/sift1m/base.fvecs ]; then
+    echo
+    echo "=== flat NSW: recall vs. throughput (brute force in stage 1 is the baseline)"
     for cap in 32 0; do
-        $JAVA hnsw.tools.Bench $SIFT100K --index nsw --queries 1000 --max-degree $cap
+        $JAVA hnsw.tools.Bench --data $SYNTH --index nsw --queries 1000 --max-degree $cap
     done
-fi
+    if have_sift; then
+        for cap in 32 0; do
+            $JAVA hnsw.tools.Bench $SIFT100K --index nsw --queries 1000 --max-degree $cap
+        done
+    fi
+}
 
 # ------------------------------------------------------------------ stage 3
 # HNSW, plus the 2x2 ablation that separates what the hierarchy buys from what
 # the neighbour-selection heuristic buys. --level-mult 0 puts every node on
 # layer 0 (flat); --selection simple keeps the M nearest (stage 2's rule).
-echo
-echo "=== HNSW ablation: {flat, layered} x {simple, heuristic} selection"
-ablation() {
-    for sel in simple heuristic; do
-        $JAVA hnsw.tools.Bench "$@" --index hnsw --queries 1000 --level-mult 0 --selection $sel
-        $JAVA hnsw.tools.Bench "$@" --index hnsw --queries 1000 --selection $sel
-    done
+stage3() {
+    echo
+    echo "=== HNSW ablation: {flat, layered} x {simple, heuristic} selection"
+    ablation() {
+        for sel in simple heuristic; do
+            $JAVA hnsw.tools.Bench "$@" --index hnsw --queries 1000 --level-mult 0 --selection $sel
+            $JAVA hnsw.tools.Bench "$@" --index hnsw --queries 1000 --selection $sel
+        done
+    }
+    ablation --data $SYNTH
+    if have_sift; then
+        ablation $SIFT100K
+    fi
 }
-ablation --data $SYNTH
-[ -f data/sift1m/base.fvecs ] && ablation $SIFT100K
 
-# Full SIFT1M: the flat graph takes ~10 minutes to build on an M2, so these are
-# opt-in: FULL=1 ./scripts/bench.sh. They're the runs that show how each
-# index's cost grows with n.
-if [ "${FULL:-0}" = 1 ] && [ -f data/sift1m/base.fvecs ]; then
-    JAVA_1M="java ${JAVA_OPTS:--Xms4g -Xmx4g -XX:+AlwaysPreTouch} -cp build"
-    $JAVA_1M hnsw.tools.Bench --data data/sift1m --index nsw --queries 1000 --max-degree 0
-    $JAVA_1M hnsw.tools.Bench --data data/sift1m --index hnsw --queries 1000
-    # The ablation cell that matters most at scale: is the 1M win the hierarchy's,
-    # or the heuristic's?
-    $JAVA_1M hnsw.tools.Bench --data data/sift1m --index hnsw --queries 1000 --level-mult 0
-fi
+# ------------------------------------------------------------------ stage 4
+# The measurement stage. Every run appends to a CSV in results/, and the plot
+# tool turns those into the charts and tables the README uses.
+EF=10,16,24,32,48,64,96,128,192,256,384,512
+EF_WIDE=$EF,768,1024
+
+stage4() {
+    if ! have_sift; then
+        echo "stage 4 needs SIFT1M: ./scripts/fetch_sift.sh" >&2
+        exit 1
+    fi
+    mkdir -p results
+    {
+        echo "date:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "commit: $(git rev-parse --short HEAD)$(git diff --quiet || echo ' (uncommitted changes)')"
+        echo "java:   $(java -version 2>&1 | head -1)"
+        echo "cpu:    $(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
+        echo "memory: $(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 )) GB"
+        echo "os:     $(uname -sr)"
+        echo "single-threaded; median of 3 timed passes of 1000 queries per point; 1 s warm-up per point"
+    } > results/ENVIRONMENT.txt
+    cat results/ENVIRONMENT.txt
+
+    local series="HNSW,flat + heuristic,flat NSW (stage 2)"
+
+    # 4a. The headline curve, and how each index scales with n. The same three
+    # indexes on 100k, 300k and 1M prefixes of SIFT1M.
+    echo
+    echo "=== 4a. SIFT: recall vs. throughput, at three dataset sizes"
+    rm -f results/sift.csv
+    for n in 100000 300000 1000000; do
+        local J=$JAVA
+        [ $n -ge 1000000 ] && J=$JAVA_1M
+        $J hnsw.tools.Bench --data data/sift1m --base-limit $n --index hnsw --queries 1000 --ef-search $EF \
+            --csv results/sift.csv --label "HNSW"
+        $J hnsw.tools.Bench --data data/sift1m --base-limit $n --index hnsw --level-mult 0 --queries 1000 --ef-search $EF \
+            --csv results/sift.csv --label "flat + heuristic"
+        $J hnsw.tools.Bench --data data/sift1m --base-limit $n --index nsw --max-degree 0 --queries 1000 --ef-search $EF \
+            --csv results/sift.csv --label "flat NSW (stage 2)"
+    done
+    $JAVA_1M hnsw.tools.Bench --data data/sift1m --index brute --queries 1000 --repeats 1 \
+        --csv results/sift.csv --label "brute force"
+
+    $JAVA hnsw.tools.Plot tradeoff --csv results/sift.csv --where base_n=1000000 --series "$series" \
+        --title "SIFT1M: recall vs. throughput" \
+        --subtitle "1M x 128-d vectors, k = 10, one thread on an Apple M2. Up and to the right is better; each point is one efSearch." \
+        --svg results/sift1m-tradeoff.svg --table results/sift1m-tradeoff.md
+    for target in 0.95 0.99; do
+        $JAVA hnsw.tools.Plot at-recall --csv results/sift.csv --x base_n --x-label "vectors indexed" --target $target \
+            --series "$series" --title "SIFT: cost of recall@10 = $target as the dataset grows" \
+            --subtitle "Distance computations per query - the machine-independent cost. Brute force is n." \
+            --svg results/sift-scaling-$target.svg --table results/sift-scaling-$target.md
+    done
+    $JAVA hnsw.tools.Plot builds --csv results/sift.csv --series "$series" --table results/sift-builds.md
+
+    # 4b. Dimensionality. Hold ambient dimension at 128 and raise the latent
+    # (intrinsic) dimension the data actually varies in. Prediction from stage 3:
+    # every index gets more expensive, and the hierarchy's advantage over a flat
+    # graph shrinks as the data loses its low-dimensional structure.
+    echo
+    echo "=== 4b. intrinsic dimension: synthetic, 100k x 128-d, latent dimension 4 .. 128"
+    rm -f results/dims.csv results/dims-contrast.txt
+    for latent in 4 8 16 32 64 128; do
+        local d=data/dims-l$latent
+        [ -f $d/base.fvecs ] || $JAVA hnsw.tools.Generate --out $d --n 100000 --queries 1000 --dim 128 \
+            --latent-dim $latent --clusters 64 --seed 42
+        $JAVA hnsw.tools.Stats --data $d | tee -a results/dims-contrast.txt
+        $JAVA hnsw.tools.Bench --data $d --index hnsw --queries 1000 --ef-search $EF_WIDE \
+            --csv results/dims.csv --label "HNSW"
+        $JAVA hnsw.tools.Bench --data $d --index hnsw --level-mult 0 --queries 1000 --ef-search $EF_WIDE \
+            --csv results/dims.csv --label "flat + heuristic"
+    done
+    for target in 0.95 0.99; do
+        $JAVA hnsw.tools.Plot at-recall --csv results/dims.csv --x latent-dim --x-label "latent (intrinsic) dimension" \
+            --target $target --series "HNSW,flat + heuristic" \
+            --title "Cost of recall@10 = $target as intrinsic dimension rises" \
+            --subtitle "Synthetic: 100k vectors, always 128 floats, generated from a latent space of the given dimension." \
+            --svg results/dims-$target.svg --table results/dims-$target.md
+    done
+
+    # 4c. What M and efConstruction buy, one at a time from the defaults
+    # (M = 16, efConstruction = 100), on SIFT 100k.
+    echo
+    echo "=== 4c. HNSW parameters on SIFT 100k: M, then efConstruction"
+    rm -f results/params.csv
+    for m in 4 8 16 32 48; do
+        $JAVA hnsw.tools.Bench $SIFT100K --index hnsw --m $m --queries 1000 --ef-search $EF \
+            --csv results/params.csv --label "HNSW"
+    done
+    for efc in 50 200 400; do
+        $JAVA hnsw.tools.Bench $SIFT100K --index hnsw --ef-construction $efc --queries 1000 --ef-search $EF \
+            --csv results/params.csv --label "HNSW"
+    done
+    for target in 0.95 0.99; do
+        $JAVA hnsw.tools.Plot at-recall --csv results/params.csv --where ef_construction=100 --x m --x-label M \
+            --target $target --series HNSW --title "M" --table results/params-m-$target.md
+        $JAVA hnsw.tools.Plot at-recall --csv results/params.csv --where m=16 --x ef_construction \
+            --x-label efConstruction --target $target --series HNSW --title "efConstruction" \
+            --table results/params-efc-$target.md
+    done
+    $JAVA hnsw.tools.Plot builds --csv results/params.csv --series HNSW --table results/params-builds.md
+}
+
+./scripts/build.sh
+echo "java: $(java -version 2>&1 | head -1)"
+echo "cpu : $(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
+synthetic_data
+
+case "${1:-all}" in
+    all) stage1; stage2; stage3; stage4 ;;
+    stage1|stage2|stage3|stage4) "$1" ;;
+    *) echo "usage: $0 [all|stage1|stage2|stage3|stage4]" >&2; exit 2 ;;
+esac

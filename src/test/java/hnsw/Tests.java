@@ -42,6 +42,7 @@ public final class Tests {
         run("parallel ground truth equals serial brute force", Tests::parallelGroundTruth);
         run("verify() separates tie swaps from real errors", Tests::verifyClassifiesTies);
         run("recall@k scoring", Tests::recallScoring);
+        run("tie-aware recall credits an equally-near substitute, and only that", Tests::tieAwareRecall);
         run("brute force matches shipped SIFT1M ground truth (first 100 queries)", Tests::siftGroundTruth);
 
         // stage 2: flat NSW graph
@@ -260,6 +261,19 @@ public final class Tests {
      * 100 queries x 1M vectors keeps it to a few seconds; the full 10k-query check
      * is VerifyGroundTruth, run by bench.sh.
      */
+    static void tieAwareRecall() {
+        // Query at the origin. Ids 1 and 2 are both at squared distance 1; truth
+        // (top 2, ties by id) is {0, 1}. Returning 2 instead of 1 is equally correct.
+        float[][] base = {{0.5f, 0}, {1, 0}, {0, 1}, {3, 0}};
+        float[][] q = {{0, 0}};
+        int[][] truth = {{0, 1, 2, 3}};
+        check(Benchmark.recallAtK(new int[][]{{0, 2}}, truth, 2) == 0.5, "strict recall misses the tie");
+        check(Benchmark.recallAtKWithTies(new int[][]{{0, 2}}, truth, base, q, SquaredL2.INSTANCE, 2) == 1.0,
+                "tie-aware recall accepts it");
+        check(Benchmark.recallAtKWithTies(new int[][]{{0, 3}}, truth, base, q, SquaredL2.INSTANCE, 2) == 0.5,
+                "but not a genuinely farther vector");
+    }
+
     static void siftGroundTruth() throws IOException {
         Path dir = Path.of("data/sift1m");
         if (!Files.exists(dir.resolve("base.fvecs"))) {
