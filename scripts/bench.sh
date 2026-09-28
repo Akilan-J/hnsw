@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reproduces every number in the project from scratch:
 #   ./scripts/bench.sh            all stages (~1 hour with SIFT on an M2)
-#   ./scripts/bench.sh stage4     one stage (stage1 .. stage4)
+#   ./scripts/bench.sh stage4     one stage (stage1 .. stage4, or stage4a .. stage4d)
 # Synthetic data is generated from a fixed seed, so it needs no download. SIFT
 # runs need ./scripts/fetch_sift.sh first; stage 4 is SIFT-based and requires it.
 #
@@ -115,10 +115,10 @@ EF=10,16,24,32,48,64,96,128,192,256,384,512
 EF_WIDE=$EF,768,1024
 
 stage4() {
-    if ! have_sift; then
-        echo "stage 4 needs SIFT1M: ./scripts/fetch_sift.sh" >&2
-        exit 1
-    fi
+    stage4a; stage4b; stage4c; stage4d
+}
+
+environment() {
     mkdir -p results
     {
         echo "date:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -127,14 +127,20 @@ stage4() {
         echo "cpu:    $(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
         echo "memory: $(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 )) GB"
         echo "os:     $(uname -sr)"
-        echo "single-threaded; median of 3 timed passes of 1000 queries per point; 1 s warm-up per point"
+        echo "single-threaded; 1000 queries per point, median of 3 timed passes (up to 9 if they disagree by >10%); 1 s warm-up per point"
     } > results/ENVIRONMENT.txt
     cat results/ENVIRONMENT.txt
+}
 
+# 4a. The headline curve, and how each index scales with n. The same three
+# indexes on 100k, 300k and 1M prefixes of SIFT1M.
+stage4a() {
+    if ! have_sift; then
+        echo "stage 4a needs SIFT1M: ./scripts/fetch_sift.sh" >&2
+        exit 1
+    fi
+    environment
     local series="HNSW,flat + heuristic,flat NSW (stage 2)"
-
-    # 4a. The headline curve, and how each index scales with n. The same three
-    # indexes on 100k, 300k and 1M prefixes of SIFT1M.
     echo
     echo "=== 4a. SIFT: recall vs. throughput, at three dataset sizes"
     rm -f results/sift.csv
@@ -162,11 +168,14 @@ stage4() {
             --svg results/sift-scaling-$target.svg --table results/sift-scaling-$target.md
     done
     $JAVA hnsw.tools.Plot builds --csv results/sift.csv --series "$series" --table results/sift-builds.md
+}
 
-    # 4b. Dimensionality. Hold ambient dimension at 128 and raise the latent
-    # (intrinsic) dimension the data actually varies in. Prediction from stage 3:
-    # every index gets more expensive, and the hierarchy's advantage over a flat
-    # graph shrinks as the data loses its low-dimensional structure.
+# 4b. Dimensionality. Hold ambient dimension at 128 and raise the latent
+# (intrinsic) dimension the data actually varies in. Prediction from stage 3:
+# every index gets more expensive, and the hierarchy's advantage over a flat
+# graph shrinks as the data loses its low-dimensional structure.
+stage4b() {
+    environment
     echo
     echo "=== 4b. intrinsic dimension: synthetic, 100k x 128-d, latent dimension 4 .. 128"
     rm -f results/dims.csv results/dims-contrast.txt
@@ -187,9 +196,13 @@ stage4() {
             --subtitle "Synthetic: 100k vectors, always 128 floats, generated from a latent space of the given dimension." \
             --svg results/dims-$target.svg --table results/dims-$target.md
     done
+}
 
-    # 4c. What M and efConstruction buy, one at a time from the defaults
-    # (M = 16, efConstruction = 100), on SIFT 100k.
+# 4c. What M and efConstruction buy, one at a time from the defaults
+# (M = 16, efConstruction = 100), on SIFT 100k.
+stage4c() {
+    have_sift || { echo "stage 4c needs SIFT1M" >&2; exit 1; }
+    environment
     echo
     echo "=== 4c. HNSW parameters on SIFT 100k: M, then efConstruction"
     rm -f results/params.csv
@@ -211,6 +224,35 @@ stage4() {
     $JAVA hnsw.tools.Plot builds --csv results/params.csv --series HNSW --table results/params-builds.md
 }
 
+# 4d. Cluster structure. 4b's prediction failed: the hierarchy helped 1.3-2.4x
+# at every intrinsic dimension on the synthetic data, yet only ~5% on SIFT. The
+# synthetic data has 64 well-separated clusters. Hypothesis: the upper layers
+# earn their keep by jumping between clusters. Test: same generator, same
+# latent dimension, 1 cluster vs 64 - only the clustering changes.
+stage4d() {
+    environment
+    echo
+    echo "=== 4d. cluster structure: 1 cluster vs 64, at latent dimension 16 and 128"
+    for latent in 16 128; do
+        rm -f results/clusters-l$latent.csv
+        for clusters in 1 64; do
+            local d=data/clusters$clusters-l$latent
+            [ -f $d/base.fvecs ] || $JAVA hnsw.tools.Generate --out $d --n 100000 --queries 1000 --dim 128 \
+                --latent-dim $latent --clusters $clusters --seed 42
+            $JAVA hnsw.tools.Stats --data $d
+            $JAVA hnsw.tools.Bench --data $d --index hnsw --queries 1000 --ef-search $EF_WIDE \
+                --csv results/clusters-l$latent.csv --label "HNSW"
+            $JAVA hnsw.tools.Bench --data $d --index hnsw --level-mult 0 --queries 1000 --ef-search $EF_WIDE \
+                --csv results/clusters-l$latent.csv --label "flat + heuristic"
+        done
+        for target in 0.95 0.99; do
+            $JAVA hnsw.tools.Plot at-recall --csv results/clusters-l$latent.csv --x clusters --x-label clusters \
+                --target $target --series "HNSW,flat + heuristic" --title "clusters" \
+                --table results/clusters-l$latent-$target.md
+        done
+    done
+}
+
 ./scripts/build.sh
 echo "java: $(java -version 2>&1 | head -1)"
 echo "cpu : $(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
@@ -218,6 +260,6 @@ synthetic_data
 
 case "${1:-all}" in
     all) stage1; stage2; stage3; stage4 ;;
-    stage1|stage2|stage3|stage4) "$1" ;;
-    *) echo "usage: $0 [all|stage1|stage2|stage3|stage4]" >&2; exit 2 ;;
+    stage1|stage2|stage3|stage4|stage4a|stage4b|stage4c|stage4d) "$1" ;;
+    *) echo "usage: $0 [all|stage1|stage2|stage3|stage4|stage4a|stage4b|stage4c|stage4d]" >&2; exit 2 ;;
 esac

@@ -1,7 +1,9 @@
 package hnsw.bench;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Random;
 
 import hnsw.distance.DistanceFunction;
@@ -42,6 +44,12 @@ public final class Benchmark {
      *                      max kept to show the run-to-run spread. The median
      *                      rather than the best: best-of-N reports the machine on its
      *                      luckiest run, and the mean lets one stall move the number.
+     *                      If the passes disagree by more than 10%, something else
+     *                      on the machine is competing, so keep taking passes (up to
+     *                      3x repeats) until the median is surrounded by agreeing
+     *                      ones. Stage 4's first SIFT1M run showed why: a contended
+     *                      stretch made HNSW look 35% slower at ef=32, and its three
+     *                      passes disagreed by 48% - which this rule now catches.
      */
     public static Result run(KnnIndex index, float[][] base, float[][] queries, int[][] groundTruth,
                              DistanceFunction metric, int k, double warmupSeconds, int repeats, long seed) {
@@ -53,12 +61,15 @@ public final class Benchmark {
         }
         blackhole = sink;
 
-        Pass[] passes = new Pass[Math.max(1, repeats)];
-        for (int r = 0; r < passes.length; r++) {
-            passes[r] = timedPass(index, queries, k);
-        }
-        Pass[] byQps = passes.clone();
-        Arrays.sort(byQps, Comparator.comparingDouble(Pass::qps));
+        int target = Math.max(1, repeats);
+        List<Pass> passes = new ArrayList<>();
+        Pass[] byQps;
+        do {
+            passes.add(timedPass(index, queries, k));
+            byQps = passes.toArray(new Pass[0]);
+            Arrays.sort(byQps, Comparator.comparingDouble(Pass::qps));
+        } while (passes.size() < target
+                || (target > 1 && passes.size() < 3 * target && spread(byQps) > 0.10));
         Pass median = byQps[byQps.length / 2];
 
         // The search is deterministic, so every pass returns the same results and
@@ -68,13 +79,20 @@ public final class Benchmark {
         long[] sorted = median.latencies.clone();
         Arrays.sort(sorted);
         return new Result(index.describe(), queries.length, k, median.qps(), byQps[0].qps(),
-                byQps[byQps.length - 1].qps(), passes.length,
+                byQps[byQps.length - 1].qps(), passes.size(),
                 Arrays.stream(sorted).average().orElse(0) / 1e6,
                 percentileMs(sorted, 50), percentileMs(sorted, 95), percentileMs(sorted, 99),
                 sorted[sorted.length - 1] / 1e6,
                 recallAtK(median.results, groundTruth, k),
                 recallAtKWithTies(median.results, groundTruth, base, queries, metric, k),
                 distancesPerQuery);
+    }
+
+    /** (max - min) / median of the middle passes; the extremes on each side are what we're outvoting. */
+    private static double spread(Pass[] sorted) {
+        int trim = sorted.length >= 5 ? 1 : 0;
+        double lo = sorted[trim].qps(), hi = sorted[sorted.length - 1 - trim].qps();
+        return (hi - lo) / sorted[sorted.length / 2].qps();
     }
 
     private record Pass(long[] latencies, int[][] results, long wallNanos, long distances) {
@@ -169,8 +187,8 @@ public final class Benchmark {
 
         /** One line per run, for parameter sweeps. */
         public String row() {
-            return String.format("  %-48s recall@%d=%.4f (ties %.4f)  %,9.1f QPS (±%2.0f%%)  p50=%7.3fms  p99=%7.3fms  %,9.0f dist/q",
-                    index, k, recall, recallWithTies, qps, 50 * (qpsMax - qpsMin) / qps, p50Ms, p99Ms,
+            return String.format("  %-48s recall@%d=%.4f (ties %.4f)  %,9.1f QPS (±%2.0f%%, %d passes)  p50=%7.3fms  p99=%7.3fms  %,9.0f dist/q",
+                    index, k, recall, recallWithTies, qps, 50 * (qpsMax - qpsMin) / qps, repeats, p50Ms, p99Ms,
                     distancesPerQuery);
         }
 
