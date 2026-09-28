@@ -30,7 +30,7 @@ import hnsw.distance.DistanceFunction;
  *
  * <p>Not thread-safe: search reuses one visited set and one candidate queue.
  */
-public final class FlatNswIndex implements KnnIndex {
+public final class FlatNswIndex implements GraphIndex {
 
     private final float[][] vectors;
     private final DistanceFunction metric;
@@ -78,7 +78,7 @@ public final class FlatNswIndex implements KnnIndex {
         this.candidates = new CandidateQueue(256);
     }
 
-    /** Inserts the next vector (in array order). Returns false once all are in. */
+    @Override
     public boolean insertNext() {
         if (size == vectors.length) {
             return false;
@@ -104,6 +104,7 @@ public final class FlatNswIndex implements KnnIndex {
         }
     }
 
+    @Override
     public void setEfSearch(int ef) {
         if (ef < 1) {
             throw new IllegalArgumentException("ef must be >= 1");
@@ -272,6 +273,19 @@ public final class FlatNswIndex implements KnnIndex {
             bytes += 16 + 4L * neighbors[i].length;
         }
         return bytes + 4L * degree.length + 4L * vectors.length;
+    }
+
+    @Override
+    public String graphStats() {
+        long edges = 0;
+        int maxDeg = 0;
+        for (int i = 0; i < size; i++) {
+            edges += degree[i];
+            maxDeg = Math.max(maxDeg, degree[i]);
+        }
+        long unreachable = Arrays.stream(hopsFrom(ENTRY)).filter(h -> h < 0).count();
+        return String.format("  %,d directed edges, mean out-degree %.1f, max %d; %.1f MB graph, "
+                + "%,d nodes unreachable from entry", edges, (double) edges / size, maxDeg, graphBytes() / 1e6, unreachable);
     }
 
     @Override

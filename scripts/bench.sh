@@ -77,10 +77,29 @@ if [ -f data/sift1m/base.fvecs ]; then
     done
 fi
 
-# The flat graph at full SIFT1M scale takes ~10 minutes to build on an M2, so
-# it's opt-in: FULL=1 ./scripts/bench.sh. It's the run that shows how the flat
-# graph's cost grows with n.
+# ------------------------------------------------------------------ stage 3
+# HNSW, plus the 2x2 ablation that separates what the hierarchy buys from what
+# the neighbour-selection heuristic buys. --level-mult 0 puts every node on
+# layer 0 (flat); --selection simple keeps the M nearest (stage 2's rule).
+echo
+echo "=== HNSW ablation: {flat, layered} x {simple, heuristic} selection"
+ablation() {
+    for sel in simple heuristic; do
+        $JAVA hnsw.tools.Bench "$@" --index hnsw --queries 1000 --level-mult 0 --selection $sel
+        $JAVA hnsw.tools.Bench "$@" --index hnsw --queries 1000 --selection $sel
+    done
+}
+ablation --data $SYNTH
+[ -f data/sift1m/base.fvecs ] && ablation $SIFT100K
+
+# Full SIFT1M: the flat graph takes ~10 minutes to build on an M2, so these are
+# opt-in: FULL=1 ./scripts/bench.sh. They're the runs that show how each
+# index's cost grows with n.
 if [ "${FULL:-0}" = 1 ] && [ -f data/sift1m/base.fvecs ]; then
     JAVA_1M="java ${JAVA_OPTS:--Xms4g -Xmx4g -XX:+AlwaysPreTouch} -cp build"
     $JAVA_1M hnsw.tools.Bench --data data/sift1m --index nsw --queries 1000 --max-degree 0
+    $JAVA_1M hnsw.tools.Bench --data data/sift1m --index hnsw --queries 1000
+    # The ablation cell that matters most at scale: is the 1M win the hierarchy's,
+    # or the heuristic's?
+    $JAVA_1M hnsw.tools.Bench --data data/sift1m --index hnsw --queries 1000 --level-mult 0
 fi

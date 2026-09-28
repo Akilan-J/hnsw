@@ -14,14 +14,17 @@ import hnsw.data.Dataset;
 import hnsw.distance.DistanceFunction;
 import hnsw.index.BruteForceIndex;
 import hnsw.index.FlatNswIndex;
+import hnsw.index.GraphIndex;
+import hnsw.index.HnswIndex;
 
 /**
  * Loads a dataset, builds an index, and benchmarks it against ground truth.
  *
- * <p>usage: Bench --data DIR [--metric l2] [--index brute|nsw] [--k 10]
+ * <p>usage: Bench --data DIR [--metric l2] [--index brute|nsw|hnsw] [--k 10]
  * [--base-limit N] [--queries N] [--warmup 50] [--seed 1] [--csv FILE]
- * <br>nsw options: [--m 16] [--ef-construction 100] [--max-degree 32 (0 = unbounded)]
- * [--ef-search 10,20,40,80,160]
+ * <br>graph options: [--m 16] [--ef-construction 100] [--ef-search 10,20,40,80,160]
+ * <br>nsw only: [--max-degree 32 (0 = unbounded)]
+ * <br>hnsw only: [--selection heuristic|simple] [--level-mult 1/ln(m); 0 = flat] [--level-seed 42]
  *
  * <p>A graph index is built once and then benchmarked at every efSearch in the
  * list: build is the expensive part, and ef only affects search.
@@ -42,6 +45,9 @@ public final class Bench {
         int m = args.integer("m", 16);
         int efConstruction = args.integer("ef-construction", 100);
         int maxDegree = args.integer("max-degree", 2 * m);
+        HnswIndex.Selection selection = HnswIndex.Selection.valueOf(args.str("selection", "heuristic").toUpperCase());
+        double levelMult = args.decimal("level-mult", HnswIndex.defaultLevelMultiplier(m));
+        long levelSeed = args.longValue("level-seed", 42);
         int[] efSearch = Arrays.stream(args.str("ef-search", "10,20,40,80,160").split(","))
                 .map(String::trim).mapToInt(Integer::parseInt).toArray();
         args.done();
@@ -68,10 +74,13 @@ public final class Bench {
                 System.out.println(r.pretty());
                 results.add(r);
             }
-            case "nsw" -> {
-                FlatNswIndex index = new FlatNswIndex(data.base, metric, m, efConstruction, maxDegree);
+            case "nsw", "hnsw" -> {
+                GraphIndex index = indexType.equals("nsw")
+                        ? new FlatNswIndex(data.base, metric, m, efConstruction, maxDegree)
+                        : new HnswIndex(data.base, metric, m, efConstruction, selection, levelMult, levelSeed);
                 double seconds = build(index, data.base.length);
-                printGraphStats(index, seconds);
+                System.out.printf("built %s in %.1fs (%,.0f inserts/s)%n%s%n", index.describe(), seconds,
+                        data.base.length / seconds, index.graphStats());
                 for (int ef : efSearch) {
                     index.setEfSearch(ef);
                     Benchmark.Result r = Benchmark.run(index, data.base, queries, gt, k, warmup, seed);
@@ -97,7 +106,7 @@ public final class Bench {
         }
     }
 
-    private static double build(FlatNswIndex index, int n) {
+    private static double build(GraphIndex index, int n) {
         long start = System.nanoTime();
         int step = Math.max(1, n / 10);
         for (int i = 0; index.insertNext(); i++) {
@@ -106,20 +115,5 @@ public final class Bench {
             }
         }
         return (System.nanoTime() - start) / 1e9;
-    }
-
-    private static void printGraphStats(FlatNswIndex index, double buildSeconds) {
-        int n = index.size();
-        long edges = 0;
-        int maxDeg = 0;
-        for (int i = 0; i < n; i++) {
-            edges += index.degree(i);
-            maxDeg = Math.max(maxDeg, index.degree(i));
-        }
-        long unreachable = Arrays.stream(index.hopsFrom(index.entryPoint())).filter(h -> h < 0).count();
-        System.out.printf("built %s in %.1fs (%,.0f inserts/s)%n", index.describe(), buildSeconds, n / buildSeconds);
-        System.out.printf("  graph: %,d directed edges, mean out-degree %.1f, max %d, %.1f MB, "
-                        + "%,d nodes unreachable from entry%n",
-                edges, (double) edges / n, maxDeg, index.graphBytes() / 1e6, unreachable);
     }
 }

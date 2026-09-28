@@ -68,20 +68,28 @@ public final class TopK {
         return dists[0];
     }
 
-    /**
-     * Empties the heap and returns its ids, nearest first. Repeatedly popping the
-     * max and filling the output from the back is heapsort's second phase.
-     */
+    /** Empties the heap and returns its ids, nearest first. */
     public int[] drainAscending() {
-        int[] out = new int[size];
+        return drainSorted().ids();
+    }
+
+    /**
+     * Empties the heap and returns ids and distances, nearest first. Repeatedly
+     * popping the max and filling the output from the back is heapsort's second
+     * phase.
+     */
+    public Neighbors drainSorted() {
+        int[] outIds = new int[size];
+        float[] outDists = new float[size];
         while (size > 0) {
-            out[size - 1] = ids[0];
+            outIds[size - 1] = ids[0];
+            outDists[size - 1] = dists[0];
             size--;
             ids[0] = ids[size];
             dists[0] = dists[size];
             siftDown(0);
         }
-        return out;
+        return new Neighbors(outIds, outDists);
     }
 
     /** The total order: true if (d1, id1) sorts strictly before (d2, id2). */

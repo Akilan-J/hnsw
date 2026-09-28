@@ -53,6 +53,16 @@ public final class Tests {
         run("greedy (ef=1) always stops at a local minimum", IndexTests::greedyStopsAtLocalMinimum);
         run("NSW build and search are deterministic", IndexTests::deterministic);
 
+        // stage 3: HNSW
+        run("heuristic keeps one link per direction (worked example)", IndexTests::heuristicWorkedExample);
+        run("HNSW invariants: caps per layer, links stay on their layer", IndexTests::hnswGraphInvariants);
+        run("level distribution: 1/M of nodes per layer up", IndexTests::levelDistribution);
+        run("level multiplier 0 gives a flat graph", IndexTests::zeroLevelMultiplierIsFlat);
+        run("HNSW with ef >= n is exact", IndexTests::hnswExactAtFullEf);
+        run("HNSW recall@10 >= 0.95 on clustered data", IndexTests::hnswRecallSmoke);
+        run("HNSW build is deterministic for a fixed seed", IndexTests::hnswDeterministic);
+        run("HNSW with one layer + simple selection builds stage 2's graph exactly", IndexTests::hnswWithSwitchesOffIsStage2);
+
         System.out.printf("%n%d passed, %d failed, %d skipped%n", passed, failed, skipped);
         System.exit(failed == 0 ? 0 : 1);
     }
