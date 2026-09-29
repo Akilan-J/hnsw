@@ -1,0 +1,6 @@
+dims-l4                      n=100,000 dim=128  relative contrast=23.100  d10/d1=1.862  (over 100 queries)
+dims-l8                      n=100,000 dim=128  relative contrast=9.941  d10/d1=1.428  (over 100 queries)
+dims-l16                     n=100,000 dim=128  relative contrast=6.700  d10/d1=1.246  (over 100 queries)
+dims-l32                     n=100,000 dim=128  relative contrast=5.100  d10/d1=1.145  (over 100 queries)
+dims-l64                     n=100,000 dim=128  relative contrast=4.334  d10/d1=1.097  (over 100 queries)
+dims-l128                    n=100,000 dim=128  relative contrast=4.240  d10/d1=1.078  (over 100 queries)

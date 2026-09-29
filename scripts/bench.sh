@@ -2,6 +2,7 @@
 # Reproduces every number in the project from scratch:
 #   ./scripts/bench.sh            all stages (~1 hour with SIFT on an M2)
 #   ./scripts/bench.sh stage4     one stage (stage1 .. stage4, or stage4a .. stage4d)
+#   ./scripts/bench.sh plots      redraw results/ charts and tables from the CSVs
 # Synthetic data is generated from a fixed seed, so it needs no download. SIFT
 # runs need ./scripts/fetch_sift.sh first; stage 4 is SIFT-based and requires it.
 #
@@ -115,7 +116,53 @@ EF=10,16,24,32,48,64,96,128,192,256,384,512
 EF_WIDE=$EF,768,1024
 
 stage4() {
-    stage4a; stage4b; stage4c; stage4d
+    stage4a; stage4b; stage4c; stage4d; plots
+}
+
+# Every chart and table in results/, regenerated from whichever CSVs exist.
+# Separate from the runs so a styling change never needs a re-measurement:
+#   ./scripts/bench.sh plots
+plots() {
+    local P="$JAVA hnsw.tools.Plot"
+    local sift="HNSW,flat + heuristic,flat NSW (stage 2)"
+    if [ -f results/sift.csv ]; then
+        $P tradeoff --csv results/sift.csv --where base_n=1000000 --series "$sift" \
+            --title "SIFT1M: recall vs. throughput" \
+            --subtitle "1M x 128-d vectors, k = 10, one thread on an Apple M2. Up and to the right is better; each point is one efSearch." \
+            --svg results/sift1m-tradeoff.svg --table results/sift1m-tradeoff.md >/dev/null
+        for t in 0.95 0.99; do
+            $P at-recall --csv results/sift.csv --x base_n --x-label "vectors indexed" --target $t --series "$sift" \
+                --title "SIFT: cost of recall@10 = $t as the dataset grows" \
+                --subtitle "Distance computations per query - the machine-independent cost. Brute force is n." \
+                --svg results/sift-scaling-$t.svg --table results/sift-scaling-$t.md >/dev/null
+        done
+        $P builds --csv results/sift.csv --series "$sift" --table results/sift-builds.md >/dev/null
+    fi
+    if [ -f results/dims.csv ]; then
+        for t in 0.95 0.99; do
+            $P at-recall --csv results/dims.csv --x latent-dim --x-label "latent (intrinsic) dimension" --target $t \
+                --series "HNSW,flat + heuristic" --title "Cost of recall@10 = $t as intrinsic dimension rises" \
+                --subtitle "Synthetic: 100k vectors of 128 floats from a latent space of the given dimension. Hollow = upper bound." \
+                --svg results/dims-$t.svg --table results/dims-$t.md >/dev/null
+        done
+    fi
+    if [ -f results/params.csv ]; then
+        for t in 0.95 0.99; do
+            $P at-recall --csv results/params.csv --where ef_construction=100 --x m --x-label M --target $t \
+                --series HNSW --title M --table results/params-m-$t.md >/dev/null
+            $P at-recall --csv results/params.csv --where m=16 --x ef_construction --x-label efConstruction \
+                --target $t --series HNSW --title efConstruction --table results/params-efc-$t.md >/dev/null
+        done
+        $P builds --csv results/params.csv --series HNSW --table results/params-builds.md >/dev/null
+    fi
+    for latent in 16 128; do
+        [ -f results/clusters-l$latent.csv ] || continue
+        for t in 0.95 0.99; do
+            $P at-recall --csv results/clusters-l$latent.csv --x clusters --x-label clusters --target $t \
+                --series "HNSW,flat + heuristic" --title clusters --table results/clusters-l$latent-$t.md >/dev/null
+        done
+    done
+    echo "plots and tables regenerated in results/"
 }
 
 environment() {
@@ -157,17 +204,6 @@ stage4a() {
     $JAVA_1M hnsw.tools.Bench --data data/sift1m --index brute --queries 1000 --repeats 1 \
         --csv results/sift.csv --label "brute force"
 
-    $JAVA hnsw.tools.Plot tradeoff --csv results/sift.csv --where base_n=1000000 --series "$series" \
-        --title "SIFT1M: recall vs. throughput" \
-        --subtitle "1M x 128-d vectors, k = 10, one thread on an Apple M2. Up and to the right is better; each point is one efSearch." \
-        --svg results/sift1m-tradeoff.svg --table results/sift1m-tradeoff.md
-    for target in 0.95 0.99; do
-        $JAVA hnsw.tools.Plot at-recall --csv results/sift.csv --x base_n --x-label "vectors indexed" --target $target \
-            --series "$series" --title "SIFT: cost of recall@10 = $target as the dataset grows" \
-            --subtitle "Distance computations per query - the machine-independent cost. Brute force is n." \
-            --svg results/sift-scaling-$target.svg --table results/sift-scaling-$target.md
-    done
-    $JAVA hnsw.tools.Plot builds --csv results/sift.csv --series "$series" --table results/sift-builds.md
 }
 
 # 4b. Dimensionality. Hold ambient dimension at 128 and raise the latent
@@ -189,13 +225,6 @@ stage4b() {
         $JAVA hnsw.tools.Bench --data $d --index hnsw --level-mult 0 --queries 1000 --ef-search $EF_WIDE \
             --csv results/dims.csv --label "flat + heuristic"
     done
-    for target in 0.95 0.99; do
-        $JAVA hnsw.tools.Plot at-recall --csv results/dims.csv --x latent-dim --x-label "latent (intrinsic) dimension" \
-            --target $target --series "HNSW,flat + heuristic" \
-            --title "Cost of recall@10 = $target as intrinsic dimension rises" \
-            --subtitle "Synthetic: 100k vectors, always 128 floats, generated from a latent space of the given dimension." \
-            --svg results/dims-$target.svg --table results/dims-$target.md
-    done
 }
 
 # 4c. What M and efConstruction buy, one at a time from the defaults
@@ -214,14 +243,6 @@ stage4c() {
         $JAVA hnsw.tools.Bench $SIFT100K --index hnsw --ef-construction $efc --queries 1000 --ef-search $EF \
             --csv results/params.csv --label "HNSW"
     done
-    for target in 0.95 0.99; do
-        $JAVA hnsw.tools.Plot at-recall --csv results/params.csv --where ef_construction=100 --x m --x-label M \
-            --target $target --series HNSW --title "M" --table results/params-m-$target.md
-        $JAVA hnsw.tools.Plot at-recall --csv results/params.csv --where m=16 --x ef_construction \
-            --x-label efConstruction --target $target --series HNSW --title "efConstruction" \
-            --table results/params-efc-$target.md
-    done
-    $JAVA hnsw.tools.Plot builds --csv results/params.csv --series HNSW --table results/params-builds.md
 }
 
 # 4d. Cluster structure. 4b's prediction failed: the hierarchy helped 1.3-2.4x
@@ -245,11 +266,6 @@ stage4d() {
             $JAVA hnsw.tools.Bench --data $d --index hnsw --level-mult 0 --queries 1000 --ef-search $EF_WIDE \
                 --csv results/clusters-l$latent.csv --label "flat + heuristic"
         done
-        for target in 0.95 0.99; do
-            $JAVA hnsw.tools.Plot at-recall --csv results/clusters-l$latent.csv --x clusters --x-label clusters \
-                --target $target --series "HNSW,flat + heuristic" --title "clusters" \
-                --table results/clusters-l$latent-$target.md
-        done
     done
 }
 
@@ -260,6 +276,8 @@ synthetic_data
 
 case "${1:-all}" in
     all) stage1; stage2; stage3; stage4 ;;
-    stage1|stage2|stage3|stage4|stage4a|stage4b|stage4c|stage4d) "$1" ;;
-    *) echo "usage: $0 [all|stage1|stage2|stage3|stage4|stage4a|stage4b|stage4c|stage4d]" >&2; exit 2 ;;
+    stage1|stage2|stage3|stage4) "$1" ;;
+    stage4a|stage4b|stage4c|stage4d) "$1"; plots ;;
+    plots) plots ;;
+    *) echo "usage: $0 [all|stage1|stage2|stage3|stage4|stage4a..stage4d|plots]" >&2; exit 2 ;;
 esac

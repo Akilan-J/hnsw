@@ -263,15 +263,17 @@ public final class Plot {
             String series = order.get(i);
             List<double[]> pts = new ArrayList<>();
             List<String> tips = new ArrayList<>();
+            List<Boolean> hollow = new ArrayList<>();
             for (Map.Entry<Double, Double> e : points.getOrDefault(series, new TreeMap<>()).entrySet()) {
                 if (!e.getValue().isNaN()) {
                     double v = Math.abs(e.getValue());
                     pts.add(new double[]{x.map(e.getKey()), y.map(v)});
+                    hollow.add(e.getValue() < 0);
                     tips.add(String.format(Locale.ROOT, "%s, %s=%s: %s%,.0f", series, xLabel, fmtX(e.getKey()),
                             e.getValue() < 0 ? "at most " : "", v));
                 }
             }
-            s.series(i, pts, tips);
+            s.series(i, pts, tips, hollow);
         }
         s.legend(order);
         return s.finish();
@@ -444,7 +446,7 @@ public final class Plot {
 
         String label(double v) {
             if (base2) {
-                return fmtX(v);
+                return v >= 1e6 ? fmtX(v / 1e6) + "M" : v >= 1e4 ? fmtX(v / 1e3) + "k" : fmtX(v);
             }
             if (!log) {
                 return String.format(Locale.ROOT, "%.2f", v);
@@ -497,6 +499,7 @@ public final class Plot {
             for (int i = 0; i < 3; i++) {
                 b.append(String.format("  .l%d { fill:none; stroke:var(--s%d); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }%n", i, i));
                 b.append(String.format("  .m%d { fill:var(--s%d); stroke:var(--surface); stroke-width:2; }%n", i, i));
+                b.append(String.format("  .h%d { fill:var(--surface); stroke:var(--s%d); stroke-width:2; }%n", i, i));
             }
             b.append("</style>\n");
             b.append(String.format("<rect class=\"bg\" width=\"%d\" height=\"%d\" rx=\"8\"/>%n", W, H));
@@ -525,6 +528,11 @@ public final class Plot {
         }
 
         void series(int slot, List<double[]> pts, List<String> tips) {
+            series(slot, pts, tips, null);
+        }
+
+        /** hollow.get(i) draws point i as an outline: a bound, not a measurement. */
+        void series(int slot, List<double[]> pts, List<String> tips, List<Boolean> hollow) {
             if (pts.isEmpty()) {
                 return;
             }
@@ -534,7 +542,8 @@ public final class Plot {
             }
             marks.append(String.format("<path class=\"l%d\" d=\"%s\"/>%n", slot, path));
             for (int i = 0; i < pts.size(); i++) {
-                marks.append(marker(slot, pts.get(i)[0], pts.get(i)[1], tips.get(i)));
+                boolean h = hollow != null && hollow.get(i);
+                marks.append(marker(slot, pts.get(i)[0], pts.get(i)[1], tips.get(i), h));
             }
         }
 
@@ -550,20 +559,34 @@ public final class Plot {
             double x = LEFT - 48;
             for (int i = 0; i < order.size(); i++) {
                 b.append(String.format(Locale.ROOT, "<line class=\"l%d\" x1=\"%.1f\" x2=\"%.1f\" y1=\"70\" y2=\"70\"/>%n", i, x, x + 24));
-                b.append(marker(i, x + 12, 70, order.get(i)));
+                b.append(marker(i, x + 12, 70, order.get(i), false));
                 b.append(String.format(Locale.ROOT, "<text class=\"legend\" x=\"%.1f\" y=\"70\" dominant-baseline=\"middle\">%s</text>%n",
                         x + 32, esc(order.get(i))));
-                x += 32 + 7.0 * order.get(i).length() + 28; // approximate text width at 12px
+                x += 32 + textWidth(order.get(i)) + 24;
             }
         }
 
+        /**
+         * Rough rendered width of 12px system-ui text. SVG has no text metrics
+         * without a renderer, so estimate per character: narrow glyphs (i, l,
+         * t, f, r, j, punctuation, space) are about half the width of the rest.
+         */
+        private static double textWidth(String s) {
+            double w = 0;
+            for (char c : s.toCharArray()) {
+                w += "iltfrj.,:;()| '".indexOf(c) >= 0 ? 3.6 : Character.isUpperCase(c) ? 8.2 : 6.8;
+            }
+            return w;
+        }
+
         /** Shape per slot as a second channel besides colour; a surface-coloured ring keeps overlaps legible. */
-        private static String marker(int slot, double x, double y, String tip) {
+        private static String marker(int slot, double x, double y, String tip, boolean hollow) {
+            String cls = (hollow ? "h" : "m") + slot;
             String shape = switch (MARKERS[slot]) {
-                case "square" -> String.format(Locale.ROOT, "<rect class=\"m%d\" x=\"%.1f\" y=\"%.1f\" width=\"9\" height=\"9\"/>", slot, x - 4.5, y - 4.5);
-                case "triangle" -> String.format(Locale.ROOT, "<path class=\"m%d\" d=\"M%.1f %.1f L%.1f %.1f L%.1f %.1f Z\"/>",
-                        slot, x, y - 6, x + 5.5, y + 4, x - 5.5, y + 4);
-                default -> String.format(Locale.ROOT, "<circle class=\"m%d\" cx=\"%.1f\" cy=\"%.1f\" r=\"4.5\"/>", slot, x, y);
+                case "square" -> String.format(Locale.ROOT, "<rect class=\"%s\" x=\"%.1f\" y=\"%.1f\" width=\"9\" height=\"9\"/>", cls, x - 4.5, y - 4.5);
+                case "triangle" -> String.format(Locale.ROOT, "<path class=\"%s\" d=\"M%.1f %.1f L%.1f %.1f L%.1f %.1f Z\"/>",
+                        cls, x, y - 6, x + 5.5, y + 4, x - 5.5, y + 4);
+                default -> String.format(Locale.ROOT, "<circle class=\"%s\" cx=\"%.1f\" cy=\"%.1f\" r=\"4.5\"/>", cls, x, y);
             };
             return "<g><title>" + esc(tip) + "</title>" + shape + "</g>\n";
         }

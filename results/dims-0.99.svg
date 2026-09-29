@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 460" width="760" height="460" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title id="t">Cost of recall@10 = 0.99 as intrinsic dimension rises</title>
+<desc id="d">Synthetic: 100k vectors of 128 floats from a latent space of the given dimension. Hollow = upper bound.</desc>
+<style>
+  svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+        --grid:#e1e0d9; --axis:#c3c2b7; --s0:#2a78d6; --s1:#eb6834; --s2:#1baf7a; }
+  @media (prefers-color-scheme: dark) {
+    svg { --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --s0:#3987e5; --s1:#d95926; --s2:#199e70; }
+  }
+  .bg { fill:var(--surface); }
+  .title { fill:var(--ink); font-size:16px; font-weight:600; }
+  .sub { fill:var(--ink-2); font-size:12px; }
+  .tick { fill:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .axis-label { fill:var(--ink-2); font-size:12px; }
+  .legend { fill:var(--ink); font-size:12px; }
+  .grid { stroke:var(--grid); stroke-width:1; }
+  .axis { stroke:var(--axis); stroke-width:1; }
+  .ref { fill:var(--muted); stroke:var(--surface); stroke-width:2; }
+  .ref-label { fill:var(--ink-2); font-size:11px; }
+  .l0 { fill:none; stroke:var(--s0); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .m0 { fill:var(--s0); stroke:var(--surface); stroke-width:2; }
+  .h0 { fill:var(--surface); stroke:var(--s0); stroke-width:2; }
+  .l1 { fill:none; stroke:var(--s1); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .m1 { fill:var(--s1); stroke:var(--surface); stroke-width:2; }
+  .h1 { fill:var(--surface); stroke:var(--s1); stroke-width:2; }
+  .l2 { fill:none; stroke:var(--s2); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .m2 { fill:var(--s2); stroke:var(--surface); stroke-width:2; }
+  .h2 { fill:var(--surface); stroke:var(--s2); stroke-width:2; }
+</style>
+<rect class="bg" width="760" height="460" rx="8"/>
+<text class="title" x="24" y="28">Cost of recall@10 = 0.99 as intrinsic dimension rises</text>
+<text class="sub" x="24" y="48">Synthetic: 100k vectors of 128 floats from a latent space of the given dimension. Hollow = upper bound.</text>
+<line class="grid" x1="72" x2="732" y1="404.0" y2="404.0"/>
+<text class="tick" x="64" y="404.0" text-anchor="end" dominant-baseline="middle">100</text>
+<line class="grid" x1="72" x2="732" y1="331.8" y2="331.8"/>
+<text class="tick" x="64" y="331.8" text-anchor="end" dominant-baseline="middle">200</text>
+<line class="grid" x1="72" x2="732" y1="236.4" y2="236.4"/>
+<text class="tick" x="64" y="236.4" text-anchor="end" dominant-baseline="middle">500</text>
+<line class="grid" x1="72" x2="732" y1="164.2" y2="164.2"/>
+<text class="tick" x="64" y="164.2" text-anchor="end" dominant-baseline="middle">1k</text>
+<line class="grid" x1="72" x2="732" y1="92.0" y2="92.0"/>
+<text class="tick" x="64" y="92.0" text-anchor="end" dominant-baseline="middle">2k</text>
+<line class="grid" x1="90.7" x2="90.7" y1="92" y2="404"/>
+<text class="tick" x="90.7" y="422" text-anchor="middle">4</text>
+<line class="grid" x1="215.2" x2="215.2" y1="92" y2="404"/>
+<text class="tick" x="215.2" y="422" text-anchor="middle">8</text>
+<line class="grid" x1="339.7" x2="339.7" y1="92" y2="404"/>
+<text class="tick" x="339.7" y="422" text-anchor="middle">16</text>
+<line class="grid" x1="464.3" x2="464.3" y1="92" y2="404"/>
+<text class="tick" x="464.3" y="422" text-anchor="middle">32</text>
+<line class="grid" x1="588.8" x2="588.8" y1="92" y2="404"/>
+<text class="tick" x="588.8" y="422" text-anchor="middle">64</text>
+<line class="grid" x1="713.3" x2="713.3" y1="92" y2="404"/>
+<text class="tick" x="713.3" y="422" text-anchor="middle">128</text>
+<line class="axis" x1="72" x2="732" y1="404" y2="404"/>
+<text class="axis-label" x="402" y="446" text-anchor="middle">latent (intrinsic) dimension (log scale)</text>
+<text class="axis-label" transform="translate(18 248) rotate(-90)" text-anchor="middle">distances per query at recall@10 = 0.99 (log scale)</text>
+<line class="l0" x1="24.0" x2="48.0" y1="70" y2="70"/>
+<g><title>HNSW</title><circle class="m0" cx="36.0" cy="70.0" r="4.5"/></g>
+<text class="legend" x="56.0" y="70" dominant-baseline="middle">HNSW</text>
+<line class="l1" x1="112.8" x2="136.8" y1="70" y2="70"/>
+<g><title>flat + heuristic</title><rect class="m1" x="120.3" y="65.5" width="9" height="9"/></g>
+<text class="legend" x="144.8" y="70" dominant-baseline="middle">flat + heuristic</text>
+<path class="l0" d="M90.7 373.2 L215.2 307.7 L339.7 249.0 L464.3 203.7 L588.8 175.6 L713.3 172.1"/>
+<g><title>HNSW, latent (intrinsic) dimension=4: at most 134</title><circle class="h0" cx="90.7" cy="373.2" r="4.5"/></g>
+<g><title>HNSW, latent (intrinsic) dimension=8: 252</title><circle class="m0" cx="215.2" cy="307.7" r="4.5"/></g>
+<g><title>HNSW, latent (intrinsic) dimension=16: 443</title><circle class="m0" cx="339.7" cy="249.0" r="4.5"/></g>
+<g><title>HNSW, latent (intrinsic) dimension=32: 684</title><circle class="m0" cx="464.3" cy="203.7" r="4.5"/></g>
+<g><title>HNSW, latent (intrinsic) dimension=64: 896</title><circle class="m0" cx="588.8" cy="175.6" r="4.5"/></g>
+<g><title>HNSW, latent (intrinsic) dimension=128: 927</title><circle class="m0" cx="713.3" cy="172.1" r="4.5"/></g>
+<path class="l1" d="M90.7 321.6 L215.2 281.8 L339.7 176.0 L464.3 130.5 L588.8 147.4 L713.3 118.2"/>
+<g><title>flat + heuristic, latent (intrinsic) dimension=4: at most 221</title><rect class="h1" x="86.2" y="317.1" width="9" height="9"/></g>
+<g><title>flat + heuristic, latent (intrinsic) dimension=8: 323</title><rect class="m1" x="210.7" y="277.3" width="9" height="9"/></g>
+<g><title>flat + heuristic, latent (intrinsic) dimension=16: 893</title><rect class="m1" x="335.2" y="171.5" width="9" height="9"/></g>
+<g><title>flat + heuristic, latent (intrinsic) dimension=32: 1,382</title><rect class="m1" x="459.8" y="126.0" width="9" height="9"/></g>
+<g><title>flat + heuristic, latent (intrinsic) dimension=64: 1,175</title><rect class="m1" x="584.3" y="142.9" width="9" height="9"/></g>
+<g><title>flat + heuristic, latent (intrinsic) dimension=128: 1,555</title><rect class="m1" x="708.8" y="113.7" width="9" height="9"/></g>
+</svg>

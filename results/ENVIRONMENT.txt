@@ -1,0 +1,15 @@
+date:   2026-09-29T17:56:49Z
+commit: e707a32
+java:   openjdk version "17.0.17" 2025-10-21
+cpu:    Apple M2
+memory: 8 GB
+os:     Darwin 25.5.0
+single-threaded; 1000 queries per point, median of 3 timed passes (up to 9 if they disagree by >10%); 1 s warm-up per point
+
+provenance:
+  sift.csv, clusters-*.csv  stage4a + stage4d, run at commit e707a32 (the lines above)
+  dims.csv, params.csv      stage4b + stage4c, run at commit 9cc3f99. The only change
+                            between the two commits is the benchmark taking extra passes
+                            when passes disagree; distance counts and recall are unaffected,
+                            and these two experiments are reported in distances, not QPS.
+  charts and .md tables     regenerated from the CSVs by ./scripts/bench.sh plots

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 460" width="760" height="460" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title id="t">SIFT: cost of recall@10 = 0.99 as the dataset grows</title>
+<desc id="d">Distance computations per query - the machine-independent cost. Brute force is n.</desc>
+<style>
+  svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+        --grid:#e1e0d9; --axis:#c3c2b7; --s0:#2a78d6; --s1:#eb6834; --s2:#1baf7a; }
+  @media (prefers-color-scheme: dark) {
+    svg { --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --s0:#3987e5; --s1:#d95926; --s2:#199e70; }
+  }
+  .bg { fill:var(--surface); }
+  .title { fill:var(--ink); font-size:16px; font-weight:600; }
+  .sub { fill:var(--ink-2); font-size:12px; }
+  .tick { fill:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .axis-label { fill:var(--ink-2); font-size:12px; }
+  .legend { fill:var(--ink); font-size:12px; }
+  .grid { stroke:var(--grid); stroke-width:1; }
+  .axis { stroke:var(--axis); stroke-width:1; }
+  .ref { fill:var(--muted); stroke:var(--surface); stroke-width:2; }
+  .ref-label { fill:var(--ink-2); font-size:11px; }
+  .l0 { fill:none; stroke:var(--s0); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .m0 { fill:var(--s0); stroke:var(--surface); stroke-width:2; }
+  .h0 { fill:var(--surface); stroke:var(--s0); stroke-width:2; }
+  .l1 { fill:none; stroke:var(--s1); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .m1 { fill:var(--s1); stroke:var(--surface); stroke-width:2; }
+  .h1 { fill:var(--surface); stroke:var(--s1); stroke-width:2; }
+  .l2 { fill:none; stroke:var(--s2); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .m2 { fill:var(--s2); stroke:var(--surface); stroke-width:2; }
+  .h2 { fill:var(--surface); stroke:var(--s2); stroke-width:2; }
+</style>
+<rect class="bg" width="760" height="460" rx="8"/>
+<text class="title" x="24" y="28">SIFT: cost of recall@10 = 0.99 as the dataset grows</text>
+<text class="sub" x="24" y="48">Distance computations per query - the machine-independent cost. Brute force is n.</text>
+<line class="grid" x1="72" x2="732" y1="404.0" y2="404.0"/>
+<text class="tick" x="64" y="404.0" text-anchor="end" dominant-baseline="middle">1k</text>
+<line class="grid" x1="72" x2="732" y1="269.6" y2="269.6"/>
+<text class="tick" x="64" y="269.6" text-anchor="end" dominant-baseline="middle">2k</text>
+<line class="grid" x1="72" x2="732" y1="92.0" y2="92.0"/>
+<text class="tick" x="64" y="92.0" text-anchor="end" dominant-baseline="middle">5k</text>
+<line class="grid" x1="99.3" x2="99.3" y1="92" y2="404"/>
+<text class="tick" x="99.3" y="422" text-anchor="middle">100k</text>
+<line class="grid" x1="388.2" x2="388.2" y1="92" y2="404"/>
+<text class="tick" x="388.2" y="422" text-anchor="middle">300k</text>
+<line class="grid" x1="704.7" x2="704.7" y1="92" y2="404"/>
+<text class="tick" x="704.7" y="422" text-anchor="middle">1M</text>
+<line class="axis" x1="72" x2="732" y1="404" y2="404"/>
+<text class="axis-label" x="402" y="446" text-anchor="middle">vectors indexed (log scale)</text>
+<text class="axis-label" transform="translate(18 248) rotate(-90)" text-anchor="middle">distances per query at recall@10 = 0.99 (log scale)</text>
+<line class="l0" x1="24.0" x2="48.0" y1="70" y2="70"/>
+<g><title>HNSW</title><circle class="m0" cx="36.0" cy="70.0" r="4.5"/></g>
+<text class="legend" x="56.0" y="70" dominant-baseline="middle">HNSW</text>
+<line class="l1" x1="112.8" x2="136.8" y1="70" y2="70"/>
+<g><title>flat + heuristic</title><rect class="m1" x="120.3" y="65.5" width="9" height="9"/></g>
+<text class="legend" x="144.8" y="70" dominant-baseline="middle">flat + heuristic</text>
+<line class="l2" x1="248.8" x2="272.8" y1="70" y2="70"/>
+<g><title>flat NSW (stage 2)</title><path class="m2" d="M260.8 64.0 L266.3 74.0 L255.3 74.0 Z"/></g>
+<text class="legend" x="280.8" y="70" dominant-baseline="middle">flat NSW (stage 2)</text>
+<path class="l0" d="M99.3 381.4 L388.2 297.7 L704.7 205.2"/>
+<g><title>HNSW, vectors indexed=100000: 1,124</title><circle class="m0" cx="99.3" cy="381.4" r="4.5"/></g>
+<g><title>HNSW, vectors indexed=300000: 1,731</title><circle class="m0" cx="388.2" cy="297.7" r="4.5"/></g>
+<g><title>HNSW, vectors indexed=1000000: 2,788</title><circle class="m0" cx="704.7" cy="205.2" r="4.5"/></g>
+<path class="l1" d="M99.3 369.5 L388.2 296.1 L704.7 209.1"/>
+<g><title>flat + heuristic, vectors indexed=100000: 1,195</title><rect class="m1" x="94.8" y="365.0" width="9" height="9"/></g>
+<g><title>flat + heuristic, vectors indexed=300000: 1,745</title><rect class="m1" x="383.7" y="291.6" width="9" height="9"/></g>
+<g><title>flat + heuristic, vectors indexed=1000000: 2,733</title><rect class="m1" x="700.2" y="204.6" width="9" height="9"/></g>
+<path class="l2" d="M99.3 296.7 L388.2 218.7 L704.7 130.1"/>
+<g><title>flat NSW (stage 2), vectors indexed=100000: 1,739</title><path class="m2" d="M99.3 290.7 L104.8 300.7 L93.8 300.7 Z"/></g>
+<g><title>flat NSW (stage 2), vectors indexed=300000: 2,601</title><path class="m2" d="M388.2 212.7 L393.7 222.7 L382.7 222.7 Z"/></g>
+<g><title>flat NSW (stage 2), vectors indexed=1000000: 4,109</title><path class="m2" d="M704.7 124.1 L710.2 134.1 L699.2 134.1 Z"/></g>
+</svg>
